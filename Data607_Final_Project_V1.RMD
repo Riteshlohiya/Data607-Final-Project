@@ -93,7 +93,7 @@ loans_data <- merge(loans, alldata1, by="addr_state", all.x=TRUE)
 count(loans_data)
 ```
 
-#Cleaning the data with mostly na valuse:
+#Cleaning the data with mostly na values:
 
 ```{r}
 #remove fields that are mostly NA
@@ -254,11 +254,11 @@ roc.curve(test$bad_loans, rf_pred, col="dark red", main="The ROC-curve for Impro
 text(0.6,0.2,paste("AUC=0.667"))
 ```
 
-
+ 
 #Conclusions:
 
 I have developed a model using logistic regression and Random Forest to predict if a borrower will repay the loan based on historical data provided by Lending Club and to help investors when deciding which investment strategy to choose.
 
-I think both Logistic and Random Forest Model have simillar oucomes. I would say the data is very imbalanced, so very difficult to predict with high accuracy.
+I think both Logistic and Random Forest Model have similar outcomes. I would say the data is very imbalanced, so very difficult to predict with high accuracy.
 
 
