@@ -45,7 +45,7 @@ library(ipred)
 
 Loan data of Lending Club(https://www.lendingclub.com/info/download-data.action) from 2007-2011. I will import the .csv file and use it to build model.
 
-I will also use unemployment rate data from Bureau of Labor Statistics( https://data.bls.gov/map/MapToolServlet).I may do web scrapping or load the data to MongoDB.
+I will also use unemployment rate data from Bureau of Labor Statistics( https://data.bls.gov/map/MapToolServlet).I will load the data to MongoDB.
 
 
 # Data preparation:
