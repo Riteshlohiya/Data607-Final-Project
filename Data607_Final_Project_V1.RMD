@@ -1,0 +1,264 @@
+---
+title: "Data607 Final Project"
+author: "Ritesh Lohiya"
+date: "May 10, 2018"
+output: html_document
+---
+
+
+#Description:
+
+A Bad Debt or Loan is a monetary amount owed to a creditor that is unlikely to be paid and, or which the creditor is not willing to take action to collect because of various reasons, often due to the debtor not having the money to pay.
+Iam trying to build a bad loan model that can be used by the investors to easily decide whether to finance the borrower for new loans. I will be using Machine Learning Random Forest or some other classification algorithms.
+
+#Libraries:
+
+Loading the required libraries
+
+```{r}
+library(RMySQL)
+library(DBI)
+library(ggplot2)
+library(mongolite)
+library(RMySQL)
+library(DBI)
+library(ggplot2)
+library(rjson)
+library(knitr)
+library(stringr)
+library(rpart.plot)
+library(tidyr)
+library(dplyr)
+library(lubridate)
+library(randomForest)
+library(reshape2)
+library(ggplot2)
+library(caret)
+library(rpart)
+library(ROSE)
+library(ROCR)
+library(MASS)
+library(ipred)
+```
+
+#Data Description:
+
+Loan data of Lending Club(https://www.lendingclub.com/info/download-data.action) from 2007-2011. I will load the data to my sql and using it for model.
+
+I will also use unemployment rate data from Bureau of Labor Statistics( https://data.bls.gov/map/MapToolServlet).I may do web scrapping or load the data to MongoDB.
+
+
+# Data preparation:
+
+The documentation published in the "Data Dictionary"on the Lending Club website was very helpful in understanding and knowing the variables and their description.
+
+#The loans data:
+
+```{r}
+loans <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data607-Final-Project/master/lending_club_loansd.csv", header=TRUE, sep=",", stringsAsFactors=FALSE)
+dim(loans)
+```
+
+#The unemployment data:
+
+```{r}
+unemp <- read.csv("https://raw.githubusercontent.com/Riteshlohiya/Data607-Final-Project/master/Unemp_rate_new1.csv", header=TRUE, sep=",", stringsAsFactors=FALSE)
+unemp
+```
+
+#Writing to MongoDB:
+
+Writing the unemployment data to the MongoDB
+
+```{r}
+c=mongo(collection="unemp", db="upemp")
+c$drop()
+c$insert(unemp)
+```
+
+```{r}
+alldata <- c$find('{}')
+alldata
+```
+
+```{r}
+alldata1 <- gather(alldata, "addr_state", "un_emp_rate")
+head(alldata1)
+``` 
+
+#Merge the loans data and unemployment data:
+
+```{r}
+loans_data <- merge(loans, alldata1, by="addr_state", all.x=TRUE)
+count(loans_data)
+```
+
+#Cleaning the data with mostly na valuse:
+
+```{r}
+#remove fields that are mostly NA
+pc <- sapply(loans_data, function(x) {
+  t1 <- 1 - sum(is.na(x)) / length(x)
+  t1 < .8
+})
+df <- loans_data[,pc==FALSE]
+head(df)
+colnames(df)
+```
+
+Now we have complete data in a dataframe, so started with the analysis:
+
+```{r}
+levels(loans_data$loan_status)
+table(df$loan_status)
+```
+
+We are going to take only the data with status as "Charged Off" or "Fully Paid"
+
+```{r}
+df <- subset(df, loan_status %in% c("Charged Off", "Fully Paid" ))
+table(df$loan_status)
+
+bad_id <- c("Charged Off")
+
+df$bad_loans <- ifelse(df$loan_status %in% bad_id, 1,
+                         ifelse(df$loan_status=="", NA,
+                                0))
+table(df$loan_status)
+table(df$bad_loans)
+
+```
+
+#Exploratory Analysis:
+
+Checking loan status against the loan grades. Most of the lower grade loans failed to pay back.
+
+```{r}
+table(df$loan_status, df$grade)
+
+ggplot(df, aes(x = int_rate))+ geom_histogram(aes(fill = grade)) + facet_wrap(~loan_status, ncol = 1)
+```
+
+Similarly loan status against the unemployment rate.
+
+```{r}
+table(df$loan_status, df$un_emp_rate)
+
+ggplot(df, aes(x = un_emp_rate))+ geom_histogram(aes(fill = un_emp_rate)) + facet_wrap(~loan_status, ncol = 1)
+```
+
+#Finding out the numeric columns:
+
+We need to find all the numeric data that we can utilize to decide on the predictors, so iam doing numeric analysis. Ploting the graph for clear understanding.
+ 
+```{r}
+numeric_cols <- sapply(df, is.numeric)
+df.lng <- melt(df[,numeric_cols], id ="bad_loans")
+head(df.lng)
+
+p <- ggplot(aes(x=value, group=bad_loans, colour=factor(bad_loans)), data=df.lng)
+p + geom_density() +
+  facet_wrap(~variable, scales="free")
+```
+ 
+#Removing outliers:
+ 
+We need to remove the outliers so that it should not impact by making wrong predictions.
+
+```{r}
+#Removing annual_inc outliers
+
+summary(df$annual_inc)
+inc_outliers <- which(df$annual_inc > 1000000) 
+df <- df[-inc_outliers,] 
+
+```
+
+Now the data is ready for model development. First i will try logistic regression and then if not satisfied we can use some of the advanced models like Random forest.
+
+#Building the Models
+
+```{r}
+
+#Sampling the data
+set.seed(123)
+
+sample <- runif(nrow(df)) > 0.70
+train <- df[sample==FALSE,]
+test <- df[sample==TRUE,]
+
+table(train$bad_loans)
+
+#Building the logistic regression model
+
+logistic_regressor <- glm(bad_loans ~ loan_amnt + int_rate + installment + annual_inc + dti +
+revol_bal + revol_util + total_acc + un_emp_rate, family = "binomial", data = train)
+summary(logistic_regressor)
+
+#Predicting on test data
+pred <- predict(logistic_regressor, newdata = test, type = "response")
+summary(pred)
+
+
+pred_co <- ifelse(pred > 0.8, 1,0) 
+table(test$bad_loans,pred_co )
+pred_t <- prediction(pred_co,test$bad_loans)
+perfm <- performance(pred_t, "tpr", "fpr")
+
+#Printing AUC Value
+perfm <- performance(pred_t, "auc")
+print(perfm@y.values[[1]])
+
+#ROC curve
+roc.curve(test$bad_loans, pred_co,col="red", main="The ROC-curve for Model")
+text(0.6,0.2,paste("AUC=0.5"))
+
+```
+
+The AUC is just 0.5 so we need to resample the data so that we can have balanced samples. Iam improving the sampling by balancing between good and bad loans.
+
+```{r}
+#Improving the sampling by balancing between good and bad
+improved_train <- ROSE(bad_loans ~ loan_amnt + int_rate + installment + annual_inc + dti +
+revol_bal + revol_util + total_acc + un_emp_rate, data = train, seed = 1)$data
+table(improved_train$bad_loans)
+
+#Building new logistic regression model
+improved_regressor <- glm(bad_loans ~ loan_amnt + int_rate + installment + annual_inc + dti +
+revol_bal + revol_util + total_acc + un_emp_rate, family = "binomial", data = improved_train)
+summary(improved_regressor)
+
+#Making predictions on test set
+
+improved_pred <- predict(improved_regressor, newdata = test, type="response")
+hist(improved_pred)
+
+#Evaluating new model
+roc.curve(test$bad_loans, improved_pred, col="dark red", main="The ROC-curve for Improved Model")
+text(0.6,0.2,paste("AUC=0.672"))
+```
+
+
+I will now try Random forest to see if i can make better predictions.
+
+```{r}
+#Using random forest
+rf <- randomForest(bad_loans ~ loan_amnt + int_rate + installment + annual_inc + dti  + revol_bal + revol_util + total_acc 
++ un_emp_rate, type="classification", data=improved_train, importance=TRUE, na.action=na.omit)
+
+rf_pred <- predict(rf, newdata = test, type="response")
+hist(rf_pred)
+
+#Evaluating new model
+roc.curve(test$bad_loans, rf_pred, col="dark red", main="The ROC-curve for Improved Model")
+text(0.6,0.2,paste("AUC=0.667"))
+```
+
+
+#Conclusions:
+
+I have developed a model using logistic regression and Random Forest to predict if a borrower will repay the loan based on historical data provided by Lending Club and to help investors when deciding which investment strategy to choose.
+
+I think both Logistic and Random Forest Model have simillar oucomes. I would say the data is very imbalanced, so very difficult to predict with high accuracy.
+
+
